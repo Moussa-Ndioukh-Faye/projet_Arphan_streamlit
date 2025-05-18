@@ -1,0 +1,64 @@
+import streamlit as st
+from db import get_connection
+import pandas as pd
+
+def statistiques():
+    st.header("📊 Statistiques générales")
+
+    # 🔐 Mot de passe requis
+    mdp = st.text_input("Mot de passe admin (statistiques)", type="password")
+    if mdp != "admin123":
+        st.warning("Accès restreint aux statistiques.")
+        return
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 📊 Nombre total de parrains et filleuls
+    cursor.execute("SELECT COUNT(*) FROM parains")
+    nb_parrains = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM filleuls")
+    nb_filleuls = cursor.fetchone()[0]
+
+    ratio = f"{nb_parrains}:{nb_filleuls}" if nb_filleuls != 0 else "∞"
+
+    st.subheader("📌 Statistiques globales")
+    st.markdown(f"""
+    - 👨 **Parrains inscrits** : `{nb_parrains}`
+    - 🧒 **Filleuls inscrits** : `{nb_filleuls}`
+    - ⚖️ **Ratio Parrain/Filleul** : `{ratio}`
+    """)
+
+    # 📍 Répartition par département
+    st.subheader("📍 Répartition par département")
+
+    cursor.execute("""
+        SELECT departement, COUNT(*) as total FROM (
+            SELECT departement FROM parains
+            UNION ALL
+            SELECT departement FROM filleuls
+        ) AS all_depts
+        GROUP BY departement ORDER BY total DESC
+    """)
+    repartition = cursor.fetchall()
+    df = pd.DataFrame(repartition, columns=["Département", "Nombre d'inscrits"])
+    st.bar_chart(df.set_index("Département"))
+
+    # 📤 Export Excel
+    st.subheader("📥 Exporter toutes les données")
+    cursor.execute("SELECT * FROM parains")
+    df_parrains = pd.DataFrame(cursor.fetchall(), columns=[desc[0] for desc in cursor.description])
+
+    cursor.execute("SELECT * FROM filleuls")
+    df_filleuls = pd.DataFrame(cursor.fetchall(), columns=[desc[0] for desc in cursor.description])
+
+    with pd.ExcelWriter("export_inscrits.xlsx", engine="xlsxwriter") as writer:
+        df_parrains.to_excel(writer, sheet_name="Parrains", index=False)
+        df_filleuls.to_excel(writer, sheet_name="Filleuls", index=False)
+
+    with open("export_inscrits.xlsx", "rb") as f:
+        st.download_button("📁 Télécharger (Excel)", f, file_name="export_inscrits.xlsx")
+
+    cursor.close()
+    conn.close()

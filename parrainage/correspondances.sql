@@ -11,3 +11,4 @@ CREATE TABLE correspondances (
 );
 -- #pour vider une table
 -- TRUNCATE TABLE correspondances;
+

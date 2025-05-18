@@ -2,40 +2,30 @@ import streamlit as st
 from db import get_connection
 
 def afficher_listes():
-    st.header("Listes des inscrits")
+    st.subheader("📜 Liste des utilisateurs inscrits")
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    # --- Parrains ---
-    st.subheader("👨‍🏫 Parrains")
-    try:
-        cursor.execute("SELECT nom, prenom, numero_tel, departement FROM parains")
-        parrains = cursor.fetchall()
+    choix = st.selectbox("Choisissez la liste à afficher", ["Parrains", "Filleuls"])
 
-        if parrains:
-            for p in parrains:
-                st.write(f"👤 {p[0]} {p[1]} | 📱 {p[2]} | 📍 {p[3]}")
-        else:
-            st.info("Aucun parrain inscrit pour le moment.")
-    except Exception as e:
-        st.error(f"Erreur : {e}")
+    if choix == "Parrains":
+        cursor.execute("SELECT numero_tel, nom, prenom, departement FROM parains")
+        users = cursor.fetchall()
+        st.markdown("### 🧑‍🎓 Parrains")
+    else:
+        cursor.execute("SELECT numero_tel, nom, prenom, departement FROM filleuls")
+        users = cursor.fetchall()
+        st.markdown("### 👶 Filleuls")
 
-    st.markdown("---")
-
-    # --- Filleuls ---
-    st.subheader("🧑‍🎓 Filleuls")
-    try:
-        cursor.execute("SELECT nom, prenom, numero_tel, departement FROM filleuls")
-        filleuls = cursor.fetchall()
-
-        if filleuls:
-            for f in filleuls:
-                st.write(f"👤 {f[0]} {f[1]} | 📱 {f[2]} | 📍 {f[3]}")
-        else:
-            st.info("Aucun filleul inscrit pour le moment.")
-    except Exception as e:
-        st.error(f"Erreur : {e}")
+    if users:
+        # Affichage dans un tableau Streamlit
+        import pandas as pd
+        df = pd.DataFrame(users, columns=["Téléphone", "Nom", "Prénom", "Département"])
+        st.table(df)
+    else:
+        st.info("Aucun utilisateur trouvé.")
 
     cursor.close()
     conn.close()
+

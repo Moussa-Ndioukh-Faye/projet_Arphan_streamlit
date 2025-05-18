@@ -1,74 +1,90 @@
 import streamlit as st
 from db import get_connection
+import random
+import pandas as pd
+from datetime import datetime
 
 def correspondance():
-    st.header("Matching automatique")
+    st.subheader("🔁 Appariement aléatoire Parrain ↔ Filleul")
 
-    if st.button("Lancer le matching"):
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
 
-            # Obtenir les parrains NON appariés
-            cursor.execute("""
-                SELECT numero_tel FROM parains
-                WHERE numero_tel NOT IN (
-                    SELECT parrain_tel FROM correspondances
-                )
-            """)
-            parrains_dispo = [p[0] for p in cursor.fetchall()]
-
-            # Obtenir les filleuls NON appariés
-            cursor.execute("""
-                SELECT numero_tel FROM filleuls
-                WHERE numero_tel NOT IN (
-                    SELECT filleul_tel FROM correspondances
-                )
-            """)
-            filleuls_dispo = [f[0] for f in cursor.fetchall()]
-
-            # Faire les appariements
-            matches = list(zip(parrains_dispo, filleuls_dispo))
-
-            if not matches:
-                st.info("Aucune nouvelle correspondance à créer.")
-            else:
-                for parrain_tel, filleul_tel in matches:
-                    cursor.execute("""
-                        INSERT INTO correspondances (parrain_tel, filleul_tel)
-                        VALUES (%s, %s)
-                    """, (parrain_tel, filleul_tel))
+    # 🔒 Sécurité : protection admin pour la réinitialisation
+    with st.expander("🔐 Réinitialisation des correspondances (admin seulement)"):
+        password = st.text_input("Mot de passe admin :", type="password")
+        if st.button("🔄 Réinitialiser les correspondances"):
+            if password == "admin123":
+                cursor.execute("DELETE FROM correspondances")
                 conn.commit()
-                st.success(f"{len(matches)} correspondance(s) créée(s) !")
+                st.success("✅ Correspondances supprimées avec succès.")
+                conn.close()
+                st.stop()
+            else:
+                st.error("❌ Mot de passe incorrect.")
 
-        except Exception as e:
-            st.error(f"Erreur lors du matching : {e}")
-        finally:
-            cursor.close()
-            conn.close()
-
-    # Affichage des correspondances existantes
-    st.subheader("Correspondances existantes")
-
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
+    # 🎯 Lancer le matching
+    if st.button("🎯 Lancer le matching aléatoire"):
+        # Récupérer les parrains non appariés
         cursor.execute("""
-            SELECT p.nom, p.prenom, p.numero_tel, f.nom, f.prenom, f.numero_tel
-            FROM correspondances c
-            JOIN parains p ON c.parrain_tel = p.numero_tel
-            JOIN filleuls f ON c.filleul_tel = f.numero_tel
+            SELECT numero_tel FROM parains
+            WHERE numero_tel NOT IN (SELECT parrain_tel FROM correspondances)
         """)
-        rows = cursor.fetchall()
+        parrains = [row[0] for row in cursor.fetchall()]
 
-        if rows:
-            for r in rows:
-                st.write(f"👨‍🏫 {r[0]} {r[1]} ({r[2]}) ↔ 🧑‍🎓 {r[3]} {r[4]} ({r[5]})")
-        else:
-            st.info("Aucune correspondance enregistrée.")
+        # Récupérer les filleuls non appariés
+        cursor.execute("""
+            SELECT numero_tel FROM filleuls
+            WHERE numero_tel NOT IN (SELECT filleul_tel FROM correspondances)
+        """)
+        filleuls = [row[0] for row in cursor.fetchall()]
 
-    except Exception as e:
-        st.error(f"Erreur lors de l'affichage : {e}")
-    finally:
-        cursor.close()
-        conn.close()
+        # Mélanger aléatoirement
+        random.shuffle(parrains)
+        random.shuffle(filleuls)
+
+        # Appariement
+        nb_matches = min(len(parrains), len(filleuls))
+        matches = list(zip(parrains[:nb_matches], filleuls[:nb_matches]))
+
+        for parrain, filleul in matches:
+            cursor.execute("""
+                INSERT INTO correspondances (parrain_tel, filleul_tel, date_matching)
+                VALUES (%s, %s, %s)
+            """, (parrain, filleul, datetime.now()))
+
+        conn.commit()
+        st.success(f"🎉 {nb_matches} correspondance(s) effectuée(s).")
+
+    # 📋 Affichage des correspondances
+    cursor.execute("""
+        SELECT p.nom, p.prenom, f.nom, f.prenom, c.date_matching
+        FROM correspondances c
+        JOIN parains p ON c.parrain_tel = p.numero_tel
+        JOIN filleuls f ON c.filleul_tel = f.numero_tel
+    """)
+    resultats = cursor.fetchall()
+    conn.close()
+
+    if resultats:
+        st.markdown("### ✅ Correspondances existantes")
+        data = []
+        for parrain_nom, parrain_prenom, filleul_nom, filleul_prenom, date_match in resultats:
+            data.append({
+                "Parrain": f"{parrain_prenom} {parrain_nom}",
+                "Filleul": f"{filleul_prenom} {filleul_nom}",
+                "Date de Matching": date_match.strftime("%Y-%m-%d %H:%M")
+            })
+        df = pd.DataFrame(data)
+        st.dataframe(df)
+
+        # 📤 Export CSV
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Télécharger les correspondances (CSV)",
+            data=csv,
+            file_name='correspondances.csv',
+            mime='text/csv'
+        )
+    else:
+        st.info("Aucune correspondance encore effectuée.")
